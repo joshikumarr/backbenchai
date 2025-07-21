@@ -1,1 +1,77 @@
+name: Mirror Release to Main Repo
 
+on:
+  release:
+    types: [published]
+
+jobs:
+  mirror-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Release Assets
+        uses: actions/github-script@v7
+        id: download_assets
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const release = await github.rest.repos.getReleaseByTag({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              tag: context.payload.release.tag_name,
+            });
+            const assets = release.data.assets;
+            const wanted = ["x64.exe", "arm64.dmg"];
+            let downloadedFiles = [];
+            for (const asset of assets) {
+              if (wanted.includes(asset.name)) {
+                const response = await github.request({
+                  url: asset.url,
+                  headers: { Accept: 'application/octet-stream' },
+                  method: 'GET'
+                });
+                const fs = require('fs');
+                fs.writeFileSync(asset.name, Buffer.from(response.data));
+                downloadedFiles.push(asset.name);
+              }
+            }
+            return downloadedFiles;
+
+      - name: Create Release in Target Repo
+        id: create_release
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.MIRROR_RELEASE_TOKEN }}
+          script: |
+            const release = context.payload.release;
+            const result = await github.rest.repos.createRelease({
+              owner: 'backbenchai',
+              repo: 'backbenchai',
+              tag_name: release.tag_name,
+              name: release.name,
+              body: release.body,
+              draft: release.draft,
+              prerelease: release.prerelease
+            });
+            return result.data.id;
+
+      - name: Upload x64.exe to Target Release
+        if: always()
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: x64.exe
+          asset_name: x64.exe
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.MIRROR_RELEASE_TOKEN }}
+
+      - name: Upload arm64.dmg to Target Release
+        if: always()
+        uses: actions/upload-release-asset@v1
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: arm64.dmg
+          asset_name: arm64.dmg
+          asset_content_type: application/octet-stream
+        env:
+          GITHUB_TOKEN: ${{ secrets.MIRROR_RELEASE_TOKEN }}
