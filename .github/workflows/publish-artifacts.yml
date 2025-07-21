@@ -17,7 +17,7 @@ jobs:
         id: get_release
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GH_TOKEN }}
           script: |
             const tagName = context.eventName === 'release' 
               ? context.payload.release.tag_name 
@@ -35,7 +35,7 @@ jobs:
       - name: Download and Filter Assets
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.GH_TOKEN }}
           script: |
             const releaseData = JSON.parse('${{ steps.get_release.outputs.release_data }}');
             const assets = releaseData.assets;
@@ -61,7 +61,7 @@ jobs:
         id: create_release
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.MIRROR_RELEASE_TOKEN }}
+          github-token: ${{ secrets.GH_TOKEN }}
           script: |
             const releaseData = JSON.parse('${{ steps.get_release.outputs.release_data }}');
             
@@ -82,7 +82,7 @@ jobs:
       - name: Upload Assets
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.MIRROR_RELEASE_TOKEN }}
+          github-token: ${{ secrets.GH_TOKEN }}
           script: |
             const fs = require('fs');
             const path = require('path');
