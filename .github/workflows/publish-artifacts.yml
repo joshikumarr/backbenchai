@@ -1,41 +1,61 @@
 name: Mirror Release to Main Repo
-
 on:
   release:
     types: [published]
   workflow_dispatch:
-  
+    inputs:
+      tag_name:
+        description: 'Release tag to mirror'
+        required: true
+        type: string
+
 jobs:
   mirror-release:
     runs-on: ubuntu-latest
     steps:
-      - name: Download Release Assets
+      - name: Get Release Info
+        id: get_release
         uses: actions/github-script@v7
-        id: download_assets
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
+            const tagName = context.eventName === 'release' 
+              ? context.payload.release.tag_name 
+              : '${{ inputs.tag_name }}';
+            
             const release = await github.rest.repos.getReleaseByTag({
               owner: context.repo.owner,
               repo: context.repo.repo,
-              tag: context.payload.release.tag_name,
+              tag: tagName,
             });
-            const assets = release.data.assets;
-            const wanted = ["x64.exe", "arm64.dmg"];
-            let downloadedFiles = [];
+            
+            core.setOutput('release_data', JSON.stringify(release.data));
+            return release.data;
+
+      - name: Download and Filter Assets
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const releaseData = JSON.parse('${{ steps.get_release.outputs.release_data }}');
+            const assets = releaseData.assets;
+            
+            // More flexible filtering
+            const assetPatterns = [/x64\.exe$/, /arm64\.dmg$/];
+            
             for (const asset of assets) {
-              if (wanted.includes(asset.name)) {
+              const matchesPattern = assetPatterns.some(pattern => pattern.test(asset.name));
+              if (matchesPattern) {
                 const response = await github.request({
                   url: asset.url,
                   headers: { Accept: 'application/octet-stream' },
-                  method: 'GET'
                 });
+                
                 const fs = require('fs');
                 fs.writeFileSync(asset.name, Buffer.from(response.data));
-                downloadedFiles.push(asset.name);
+                console.log(`Downloaded: ${asset.name}`);
               }
             }
-            return downloadedFiles;
 
       - name: Create Release in Target Repo
         id: create_release
@@ -43,36 +63,47 @@ jobs:
         with:
           github-token: ${{ secrets.MIRROR_RELEASE_TOKEN }}
           script: |
-            const release = context.payload.release;
+            const releaseData = JSON.parse('${{ steps.get_release.outputs.release_data }}');
+            
             const result = await github.rest.repos.createRelease({
               owner: 'backbenchai',
               repo: 'backbenchai',
-              tag_name: release.tag_name,
-              name: release.name,
-              body: release.body,
-              draft: release.draft,
-              prerelease: release.prerelease
+              tag_name: releaseData.tag_name,
+              name: releaseData.name,
+              body: releaseData.body,
+              draft: false, // Usually want to publish immediately
+              prerelease: releaseData.prerelease
             });
+            
+            core.setOutput('upload_url', result.data.upload_url);
+            core.setOutput('release_id', result.data.id);
             return result.data.id;
 
-      - name: Upload x64.exe to Target Release
-        if: always()
-        uses: actions/upload-release-asset@v1
+      - name: Upload Assets
+        uses: actions/github-script@v7
         with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: x64.exe
-          asset_name: x64.exe
-          asset_content_type: application/octet-stream
-        env:
-          GITHUB_TOKEN: ${{ secrets.MIRROR_RELEASE_TOKEN }}
-
-      - name: Upload arm64.dmg to Target Release
-        if: always()
-        uses: actions/upload-release-asset@v1
-        with:
-          upload_url: ${{ steps.create_release.outputs.upload_url }}
-          asset_path: arm64.dmg
-          asset_name: arm64.dmg
-          asset_content_type: application/octet-stream
-        env:
-          GITHUB_TOKEN: ${{ secrets.MIRROR_RELEASE_TOKEN }}
+          github-token: ${{ secrets.MIRROR_RELEASE_TOKEN }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+            
+            const assetPatterns = [/x64\.exe$/, /arm64\.dmg$/];
+            const files = fs.readdirSync('.').filter(file => 
+              assetPatterns.some(pattern => pattern.test(file))
+            );
+            
+            for (const file of files) {
+              if (fs.existsSync(file)) {
+                const stats = fs.statSync(file);
+                const data = fs.readFileSync(file);
+                
+                await github.rest.repos.uploadReleaseAsset({
+                  owner: 'backbenchai',
+                  repo: 'backbenchai',
+                  release_id: '${{ steps.create_release.outputs.release_id }}',
+                  name: file,
+                  data: data,
+                });
+                console.log(`Uploaded: ${file}`);
+              }
+            }
