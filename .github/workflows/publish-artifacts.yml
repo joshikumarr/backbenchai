@@ -87,7 +87,15 @@ jobs:
             const fs = require('fs');
             const path = require('path');
             
-            const assetPatterns = [/x64\.exe$/, /arm64\.dmg$/];
+            const assetPatterns = [
+            /x64\.exe$/, 
+            /arm64\.dmg$/,
+            /\.blockmap$/,
+            /latest\.yml$/,
+            /latest-mac\.yml$/,
+            /mac-updater$/,
+            /hpatchz$/,
+            /delta\.exe$/];
             const files = fs.readdirSync('.').filter(file => 
               assetPatterns.some(pattern => pattern.test(file))
             );
