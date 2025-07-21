@@ -3,7 +3,8 @@ name: Mirror Release to Main Repo
 on:
   release:
     types: [published]
-
+  workflow_dispatch:
+  
 jobs:
   mirror-release:
     runs-on: ubuntu-latest
